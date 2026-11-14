@@ -13,6 +13,8 @@ import android.widget.Button
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +45,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtUpdate: TextView
 
     private val updater by lazy { AppUpdater(this) }
+
+    // Setup needs the notification (the pairing code is typed into it), so ask first.
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) PairingSetup.start(this)
+            else Toast.makeText(this, "Setup needs notifications: the pairing code is typed into one.", Toast.LENGTH_LONG).show()
+        }
     private lateinit var btnSound: Button
 
     // Configuration
@@ -236,11 +245,29 @@ class MainActivity : AppCompatActivity() {
      * measures again so the offset display shows the result.
      */
     private fun setSystemClock() {
+        if (!SystemClockSetter.isSetUp(this)) {
+            showSetupDialog()
+            return
+        }
+        // With automatic time off, Android ignores the app's time suggestion.
+        if (Settings.Global.getInt(contentResolver, Settings.Global.AUTO_TIME, 1) == 0) {
+            AlertDialog.Builder(this)
+                .setTitle("Turn on automatic time")
+                .setMessage("Atomic Clock sets the clock through Android's automatic time. " +
+                    "Turn on \"Set time automatically\", then try again.")
+                .setPositiveButton("Open Date & time") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_DATE_SETTINGS))
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
         btnSetClock.isEnabled = false
         txtNetworkStats.alpha = 1.0f
         txtNetworkStats.text = "Measuring true time..."
 
         CoroutineScope(Dispatchers.IO).launch {
+            var needsSetup = false
             val result = try {
                 val client = NTPUDPClient()
                 client.defaultTimeout = 5000
@@ -259,6 +286,9 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { txtNetworkStats.text = status }
                 }
                 null
+            } catch (e: SystemClockSetter.NotSetUpException) {
+                needsSetup = true
+                e.message
             } catch (e: Exception) {
                 e.printStackTrace()
                 e.message ?: e.javaClass.simpleName
@@ -266,13 +296,45 @@ class MainActivity : AppCompatActivity() {
 
             withContext(Dispatchers.Main) {
                 btnSetClock.isEnabled = true
-                if (result == null) {
+                if (needsSetup) {
+                    txtNetworkStats.text = "One-time setup needed"
+                    showSetupDialog()
+                } else if (result == null) {
                     fetchAtomicTime()
                 } else {
                     txtNetworkStats.text = "Clock not set: $result"
                 }
             }
         }
+    }
+
+    /** Walks the user through pairing the app with Wireless debugging (see PairingSetup). */
+    private fun showSetupDialog() {
+        val devOn = PairingSetup.isDeveloperOptionsOn(this)
+        val wifiOn = PairingSetup.isOnWifi(this)
+        val done = "  ✓"
+        val message = "Android doesn't let apps change the clock, so Atomic Clock does it through " +
+            "Wireless debugging. This one-time setup takes about a minute and needs no computer.\n\n" +
+            "1. Connect to Wi-Fi." + (if (wifiOn) done else "") + "\n\n" +
+            "2. Turn on Developer options: in Settings › About phone, tap \"Build number\" 7 times." +
+            (if (devOn) done else "") + "\n\n" +
+            "3. Tap Start pairing. In Developer options, scroll down to Wireless debugging, " +
+            "turn it on, open it, then tap \"Pair device with pairing code\".\n\n" +
+            "4. Keep that box open, pull down the Atomic Clock notification (expand it if " +
+            "you don't see Enter code), tap Enter code and type the 6-digit code."
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Set up clock setting")
+            .setMessage(message)
+            .setPositiveButton("Start pairing") { _, _ ->
+                if (PairingSetup.needsNotificationPermission(this)) {
+                    notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    PairingSetup.start(this)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+        if (!devOn) dialog.setNeutralButton("About phone") { _, _ -> PairingSetup.openAboutPhone(this) }
+        dialog.show()
     }
 
     private fun updateInfoDisplay() {

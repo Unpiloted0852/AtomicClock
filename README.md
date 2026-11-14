@@ -29,28 +29,26 @@ and running the time commands with its rights. To get past Android's 2-second ru
 moves the clock 3 seconds away from the true time and then to the true time, so the clock
 is wrong by 3 seconds for a fraction of a second.
 
-One-time setup, from a computer with `adb` and the phone connected over USB:
+The first press of **Set system clock** walks you through a one-time setup on the phone
+itself. It takes about a minute and needs no computer:
 
-1. Turn on **Developer options** and **USB debugging** on the phone.
-2. Let the app switch Wireless debugging on and off by itself:
+1. Connect to Wi-Fi.
+2. Turn on **Developer options** (Settings › About phone › tap *Build number* 7 times).
+3. In Developer options, turn on **Wireless debugging**, open it, and tap
+   **Pair device with pairing code**.
+4. Keeping that box open, pull down the Atomic Clock notification, tap **Enter code**
+   and type the 6-digit code.
 
-   ```bash
-   adb shell pm grant com.example.atomicclockapp android.permission.WRITE_SECURE_SETTINGS
-   ```
+The app then pairs with the phone's debugging service and uses it once to give itself
+permission to switch Wireless debugging on and off. From then on each press turns
+Wireless debugging on for a few seconds, sets the clock, and turns it off again. It
+needs Wi-Fi, because Wireless debugging only runs on Wi-Fi.
 
-3. Pair the app with the phone's debugging service:
+"Set time automatically" must stay on: the app sets the clock through Android's
+automatic time, which Android ignores when that setting is off.
 
-   ```bash
-   adb tcpip 5555
-   ```
-
-   Then press **Set system clock** in the app. Android asks *Allow USB debugging?*
-   (the "computer" is the app itself): tick **Always allow** and tap **Allow**.
-   Afterwards close the port again with `adb usb`.
-
-From then on the button works without a computer. It needs Wi-Fi, because it uses
-Wireless debugging, which it switches off again when done. Revoking USB debugging
-authorisations in Developer options undoes the pairing.
+Removing *AtomicClockApp* from Wireless debugging's paired devices, or revoking USB
+debugging authorisations, undoes the pairing; the next press offers the setup again.
 
 `tools/sync-phone-clock.sh` does the same from a computer over USB, with no setup.
 
@@ -68,8 +66,8 @@ Automatic time zone detection is not affected.
 
 - Accuracy is limited by the network path to the time server: typically within 5–20 ms.
 - The clock still drifts afterwards, roughly 0.1 s a day on a typical phone.
-- Updating from an older build signed with a different key (such as a debug build) needs
-  an uninstall first, which also undoes the one-time setup above.
+- Updating from a build signed with a different key (such as a debug build you built
+  yourself) needs an uninstall first, which also undoes the one-time setup above.
 
 ## Building
 

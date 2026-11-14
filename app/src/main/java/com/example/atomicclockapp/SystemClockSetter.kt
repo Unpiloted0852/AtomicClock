@@ -3,30 +3,8 @@ package com.example.atomicclockapp
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.Settings
-import io.github.muntashirakon.adb.AbsAdbConnectionManager
-import android.sun.security.x509.AlgorithmId
-import android.sun.security.x509.CertificateAlgorithmId
-import android.sun.security.x509.CertificateIssuerName
-import android.sun.security.x509.CertificateSerialNumber
-import android.sun.security.x509.CertificateSubjectName
-import android.sun.security.x509.CertificateValidity
-import android.sun.security.x509.CertificateVersion
-import android.sun.security.x509.CertificateX509Key
-import android.sun.security.x509.X500Name
-import android.sun.security.x509.X509CertImpl
-import android.sun.security.x509.X509CertInfo
-import java.io.File
-import java.security.KeyFactory
-import java.security.KeyPairGenerator
-import java.security.PrivateKey
-import java.security.cert.Certificate
-import java.security.cert.CertificateFactory
-import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Date
-import java.util.Random
-import java.util.concurrent.TimeUnit
+import io.github.muntashirakon.adb.AdbPairingRequiredException
 
 /**
  * Sets the phone's system clock to a given true time.
@@ -40,21 +18,27 @@ import java.util.concurrent.TimeUnit
  * true time and then set to the true time, so it is wrong by 3 s for a fraction
  * of a second.
  *
- * One-time setup over USB: grant WRITE_SECURE_SETTINGS (see AndroidManifest.xml)
- * and pair the app once by pressing the button while "adb tcpip 5555" is active.
+ * Needs the one-time setup in [PairingSetup] (or, from a computer, the steps in the README).
  */
 object SystemClockSetter {
+
+    /** The one-time setup has not been done (or was undone); show [PairingSetup]. */
+    class NotSetUpException : Exception("One-time setup needed")
 
     private const val LEGACY_ADB_PORT = 5555
     private const val WIFI_DEBUG_SETTING = "adb_wifi_enabled"
     private const val PRIORITY_FLAG = "system_time time_detector_origin_priorities_override"
+
+    /** True once the app has been paired and allowed to switch Wireless debugging on. */
+    fun isSetUp(context: Context) = canWriteSecureSettings(context)
 
     /**
      * Sets the system clock so that [trueUnixMillis] was the time at the moment
      * the phone's uptime clock read [elapsedRealtimeMillis].
      * [phoneIsFast] says which way the clock is currently wrong.
      *
-     * Blocking; call from a background thread. Throws with a readable message on failure.
+     * Blocking; call from a background thread. Throws [NotSetUpException] if the
+     * one-time setup is needed, otherwise throws with a readable message on failure.
      */
     fun setClock(
         context: Context,
@@ -64,11 +48,11 @@ object SystemClockSetter {
         onStatus: (String) -> Unit
     ) {
         val app = context.applicationContext
-        val manager = Adb(app)
+        val adb = AdbClient(app)
         var turnedOnWifiDebugging = false
         try {
             onStatus("Connecting to adb...")
-            turnedOnWifiDebugging = connect(app, manager, onStatus)
+            turnedOnWifiDebugging = connect(app, adb, onStatus)
 
             // Push the clock 3 s to the far side of the true time, then set the true time.
             val away = trueUnixMillis + if (phoneIsFast) -3000 else 3000
@@ -79,47 +63,45 @@ object SystemClockSetter {
                 " device_config put $PRIORITY_FLAG network"
 
             onStatus("Setting clock...")
-            val output = manager.shell(script)
+            val output = adb.shell(script)
             if (!output.contains("CLOCK_SET_OK")) {
                 throw IllegalStateException("Phone refused the time: ${output.trim().take(200)}")
             }
         } finally {
-            try { manager.close() } catch (_: Exception) {}
+            adb.closeQuietly()
             if (turnedOnWifiDebugging) setWifiDebugging(app, false)
         }
     }
 
     /** Returns true if this call switched Wireless debugging on (so it can be switched off again). */
-    private fun connect(context: Context, manager: Adb, onStatus: (String) -> Unit): Boolean {
+    private fun connect(context: Context, adb: AdbClient, onStatus: (String) -> Unit): Boolean {
         // 1. adb over TCP on port 5555 (on after "adb tcpip 5555" until the next reboot).
-        //    The first connection shows the "Allow USB debugging?" prompt, which pairs this app.
         try {
-            if (manager.connect("127.0.0.1", LEGACY_ADB_PORT)) return false
+            if (adb.connect("127.0.0.1", LEGACY_ADB_PORT)) return false
         } catch (_: Exception) {
         }
 
-        // 2. Wireless debugging. Needs Wi-Fi; the app switches it on itself if allowed to.
+        // 2. Wireless debugging. Needs Wi-Fi; the app switches it on itself once set up.
+        if (!canWriteSecureSettings(context)) throw NotSetUpException()
         var turnedOn = false
         if (!isWifiDebuggingOn(context)) {
-            if (!canWriteSecureSettings(context)) {
-                throw IllegalStateException("Turn on Wireless debugging in Developer options, then try again")
-            }
             onStatus("Turning on Wireless debugging...")
             setWifiDebugging(context, true)
             turnedOn = true
             Thread.sleep(1500)
             if (!isWifiDebuggingOn(context)) {
-                throw IllegalStateException("Wireless debugging would not turn on (Wi-Fi connected and network allowed?)")
+                throw IllegalStateException("Wireless debugging would not turn on. Is Wi-Fi connected?")
             }
         }
         try {
-            if (manager.connectTls(context, 15_000)) return turnedOn
-            throw IllegalStateException("Could not reach adb over Wireless debugging")
+            if (adb.connectTls(context, 15_000)) return turnedOn
+            throw IllegalStateException("Could not reach Wireless debugging. Is Wi-Fi connected?")
+        } catch (e: AdbPairingRequiredException) {
+            if (turnedOn) setWifiDebugging(context, false)
+            throw NotSetUpException()
         } catch (e: Exception) {
             if (turnedOn) setWifiDebugging(context, false)
-            throw IllegalStateException(
-                e.message ?: "Could not connect to adb (${e.javaClass.simpleName}). Has the app been paired?", e
-            )
+            throw IllegalStateException(e.message ?: "Could not connect to adb (${e.javaClass.simpleName})", e)
         }
     }
 
@@ -129,73 +111,10 @@ object SystemClockSetter {
     private fun isWifiDebuggingOn(context: Context) =
         Settings.Global.getInt(context.contentResolver, WIFI_DEBUG_SETTING, 0) == 1
 
-    private fun setWifiDebugging(context: Context, on: Boolean) {
+    internal fun setWifiDebugging(context: Context, on: Boolean) {
         try {
             Settings.Global.putInt(context.contentResolver, WIFI_DEBUG_SETTING, if (on) 1 else 0)
         } catch (_: SecurityException) {
-        }
-    }
-
-    /** adb client with a key pair that is created once and kept in the app's private storage. */
-    private class Adb(context: Context) : AbsAdbConnectionManager() {
-        private val privateKey: PrivateKey
-        private val certificate: Certificate
-
-        init {
-            setApi(Build.VERSION.SDK_INT)
-            setTimeout(60, TimeUnit.SECONDS)
-            val keyFile = File(context.filesDir, "adb_key.pk8")
-            val certFile = File(context.filesDir, "adb_key.der")
-            if (keyFile.exists() && certFile.exists()) {
-                privateKey = KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(keyFile.readBytes()))
-                certificate = certFile.inputStream().use {
-                    CertificateFactory.getInstance("X.509").generateCertificate(it)
-                }
-            } else {
-                val pair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
-                val name = X500Name("CN=AtomicClockApp")
-                val now = Date()
-                val tenYears = Date(now.time + 10L * 365 * 24 * 3600 * 1000)
-                val algorithm = "SHA512withRSA"
-                val info = X509CertInfo().apply {
-                    set("version", CertificateVersion(2))
-                    set("serialNumber", CertificateSerialNumber(Random().nextInt() and Int.MAX_VALUE))
-                    set("algorithmID", CertificateAlgorithmId(AlgorithmId.get(algorithm)))
-                    set("subject", CertificateSubjectName(name))
-                    set("key", CertificateX509Key(pair.public))
-                    set("validity", CertificateValidity(now, tenYears))
-                    set("issuer", CertificateIssuerName(name))
-                }
-                val cert = X509CertImpl(info)
-                cert.sign(pair.private, algorithm)
-                privateKey = pair.private
-                certificate = cert
-                keyFile.writeBytes(pair.private.encoded)
-                certFile.writeBytes(cert.encoded)
-            }
-        }
-
-        override fun getPrivateKey(): PrivateKey = privateKey
-        override fun getCertificate(): Certificate = certificate
-        override fun getDeviceName(): String = "AtomicClockApp"
-
-        /** Runs a shell command as adb and returns everything it printed. */
-        fun shell(command: String): String {
-            val out = StringBuilder()
-            openStream("shell:$command").use { stream ->
-                val input = stream.openInputStream()
-                val buffer = ByteArray(4096)
-                try {
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        out.append(String(buffer, 0, n))
-                    }
-                } catch (_: java.io.IOException) {
-                    // The stream closes when the command finishes.
-                }
-            }
-            return out.toString()
         }
     }
 }
