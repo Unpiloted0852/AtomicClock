@@ -10,6 +10,8 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.TypedValue
 import android.widget.Button
+import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
@@ -43,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnFixTime: Button
     private lateinit var btnSetClock: Button
     private lateinit var txtUpdate: TextView
+    private lateinit var worldClocks: WorldClockViews
 
     private val updater by lazy { AppUpdater(this) }
 
@@ -92,6 +95,7 @@ class MainActivity : AppCompatActivity() {
                 txtMinutes.text = minutes
                 txtSeconds.text = seconds
                 txtMillis.text = millis
+                worldClocks.update(currentAtomicTime)
 
                 // Sound Logic
                 val currentSecond = currentAtomicTime / 1000
@@ -126,6 +130,10 @@ class MainActivity : AppCompatActivity() {
         btnFixTime = findViewById(R.id.btnFixTime)
         btnSetClock = findViewById(R.id.btnSetClock)
         txtUpdate = findViewById(R.id.txtUpdate)
+        worldClocks = WorldClockViews(findViewById<LinearLayout>(R.id.worldAbove), findViewById<LinearLayout>(R.id.worldBelow))
+        findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         btnSound = findViewById(R.id.btnSound)
 
         // Lock text size immediately
@@ -158,6 +166,13 @@ class MainActivity : AppCompatActivity() {
 
         fetchAtomicTime()
         checkForUpdate()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Picks up changes made in Settings.
+        worldClocks.show(WorldClockStore.load(this))
+        worldClocks.update(if (isSynced) System.currentTimeMillis() + timeOffset else null)
     }
 
     /** Once per launch: if GitHub has a newer release, offer it as a tappable pill at the top. */

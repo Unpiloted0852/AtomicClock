@@ -12,6 +12,8 @@ time server (`time.google.com`), and can set the phone's own clock to match it.
 - **Set system clock** corrects the phone's clock to within a few milliseconds, at the
   push of a button. See below for the one-time setup.
 - Optional audio tick every second, with a longer tone on the minute.
+- Up to six world clocks (any of about 70,000 cities, or UTC), each small, medium or
+  large and placed above or below the main clock. Set them up from the ⋮ menu.
 - Checks this repository's releases at launch and offers to install a newer version.
 
 ## Why the phone's clock is off at all
@@ -76,3 +78,7 @@ untracked `keystore.properties` in the project root (`storeFile`, `storePassword
 `keyAlias`, `keyPassword`); without it the release build is left unsigned.
 
 The ADB connection uses [libadb-android](https://github.com/MuntashirAkon/libadb-android).
+
+City data © [GeoNames](https://www.geonames.org/), CC BY 4.0. `tools/make-cities.py`
+rebuilds `app/src/main/assets/cities.bin` from their `cities5000` and `admin1CodesASCII`
+files.
