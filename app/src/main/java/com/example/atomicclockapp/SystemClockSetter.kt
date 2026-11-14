@@ -94,8 +94,9 @@ object SystemClockSetter {
             }
         }
         try {
-            if (adb.connectTls(context, 15_000)) return turnedOn
-            throw IllegalStateException("Could not reach Wireless debugging. Is Wi-Fi connected?")
+            onStatus("Finding Wireless debugging...")
+            if (AdbPorts.findConnectPort(context, adb, onStatus)) return turnedOn
+            throw IllegalStateException("Couldn't find Wireless debugging. Is Wi-Fi connected?")
         } catch (e: AdbPairingRequiredException) {
             if (turnedOn) setWifiDebugging(context, false)
             throw NotSetUpException()

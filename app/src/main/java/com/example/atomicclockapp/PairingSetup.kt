@@ -19,9 +19,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import io.github.muntashirakon.adb.android.AdbMdns
-import java.net.InetAddress
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * One-time setup on the phone itself, no computer needed.
@@ -79,17 +76,12 @@ object PairingSetup {
      * WRITE_SECURE_SETTINGS. Blocking. Throws with a message for the user on failure.
      */
     internal fun pairAndGrant(context: Context, code: String) {
-        val (host, port) = findPairingPort(context, 8_000)
-            ?: throw IllegalStateException("Couldn't find the pairing box. Open \"Pair device with pairing code\" and enter the code while it's showing.")
         val adb = AdbClient(context)
         try {
-            val paired = try {
-                adb.pair(host.hostAddress, port, code)
-            } catch (e: Exception) {
-                false
+            if (!pair(context, adb, code)) {
+                throw IllegalStateException("Pairing failed. Check the code, and keep the pairing box open while you enter it.")
             }
-            if (!paired) throw IllegalStateException("Pairing failed. Check the code, or tap Pair again for a new one.")
-            if (!adb.connectTls(context, 10_000)) {
+            if (!AdbPorts.findConnectPort(context, adb) {}) {
                 throw IllegalStateException("Paired, but couldn't connect. Is Wireless debugging still on?")
             }
             val out = adb.shell("pm grant ${context.packageName} ${Manifest.permission.WRITE_SECURE_SETTINGS} && echo GRANT_OK")
@@ -101,23 +93,24 @@ object PairingSetup {
         SystemClockSetter.setWifiDebugging(context, false)
     }
 
-    /** Finds the port of this phone's open pairing box (mDNS, own addresses only). */
-    private fun findPairingPort(context: Context, timeoutMs: Long): Pair<InetAddress, Int>? {
-        var found: Pair<InetAddress, Int>? = null
-        val latch = CountDownLatch(1)
-        val mdns = AdbMdns(context, AdbMdns.SERVICE_TYPE_TLS_PAIRING) { host, port ->
-            if (host != null && port > 0 && found == null) {
-                found = host to port
-                latch.countDown()
+    /**
+     * Pairs using the pairing box's mDNS announcement, or if that doesn't arrive, by
+     * trying each open port on this phone (wrong ports just fail; the code isn't used up).
+     */
+    private fun pair(context: Context, adb: AdbClient, code: String): Boolean {
+        AdbPorts.viaMdns(context, AdbMdns.SERVICE_TYPE_TLS_PAIRING, 5_000)?.let { (host, port) ->
+            try {
+                if (adb.pair(host.hostAddress, port, code)) return true
+            } catch (_: Exception) {
             }
         }
-        mdns.start()
-        try {
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
-        } finally {
-            mdns.stop()
+        for (port in AdbPorts.openLocalPorts()) {
+            try {
+                if (adb.pair("127.0.0.1", port, code)) return true
+            } catch (_: Exception) {
+            }
         }
-        return found
+        return false
     }
 
     @SuppressLint("MissingPermission") // Checked by areNotificationsEnabled()

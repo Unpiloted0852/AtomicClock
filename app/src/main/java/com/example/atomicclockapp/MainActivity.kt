@@ -343,13 +343,11 @@ class MainActivity : AppCompatActivity() {
 
         txtNetworkStats.text = "Server: $currentServer   |   Margin: ±${margin}ms"
 
+        val formattedSeconds = String.format(Locale.US, "%.3f", abs(timeOffset) / 1000.0)
         if (timeOffset == 0L) {
-            txtOffset.text = "PERFECT SYNC"
+            txtOffset.text = "$formattedSeconds s"
             txtOffset.setTextColor(0xFF00E676.toInt())
         } else {
-            val offsetSeconds = abs(timeOffset) / 1000.0
-            val formattedSeconds = String.format("%.3f", offsetSeconds)
-
             val symbol = if (timeOffset > 0) "+" else "-"
             txtOffset.text = "$symbol$formattedSeconds s"
 
