@@ -1,6 +1,9 @@
 package com.example.atomicclockapp
 
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Bundle
@@ -9,15 +12,16 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.TypedValue
+import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,24 +30,22 @@ import kotlinx.coroutines.withContext
 import org.apache.commons.net.ntp.NTPUDPClient
 import java.net.InetAddress
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
-    // UI Elements
-    private lateinit var txtHours: TextView
-    private lateinit var txtColon1: TextView
-    private lateinit var txtMinutes: TextView
-    private lateinit var txtColon2: TextView
-    private lateinit var txtSeconds: TextView
+    private lateinit var txtTime: TextView
     private lateinit var txtMillis: TextView
-
+    private lateinit var txtDate: TextView
+    private lateinit var statusDot: View
     private lateinit var txtNetworkStats: TextView
     private lateinit var txtOffset: TextView
+    private lateinit var txtOffsetWords: TextView
     private lateinit var btnSync: Button
-    private lateinit var btnFixTime: Button
     private lateinit var btnSetClock: Button
+    private lateinit var btnSound: ImageButton
     private lateinit var txtUpdate: TextView
     private lateinit var worldClocks: WorldClockViews
 
@@ -55,50 +57,38 @@ class MainActivity : AppCompatActivity() {
             if (granted) PairingSetup.start(this)
             else Toast.makeText(this, "Setup needs notifications: the pairing code is typed into one.", Toast.LENGTH_LONG).show()
         }
-    private lateinit var btnSound: Button
 
-    // Configuration
     private val currentServer = "time.google.com"
 
-    // Time Variables
+    // True time = phone time + timeOffset
     private var timeOffset: Long = 0
     private var roundTripDelay: Long = 0
     private var isSynced = false
 
-    // Sound Variables
     private var isSoundOn = false
     private var lastPlayedSecond: Long = 0
     private val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
 
-    // Formatter
-    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
+    private val dateFormat = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault())
+    private var lastDateText = ""
 
     private val handler = Handler(Looper.getMainLooper())
     private val clockRunnable = object : Runnable {
         override fun run() {
             if (isSynced) {
-                // Calculate Real Time
-                val currentAtomicTime = System.currentTimeMillis() + timeOffset
+                val now = System.currentTimeMillis() + timeOffset
+                val date = Date(now)
+                txtTime.text = timeFormat.format(date)
+                txtMillis.text = ".%03d".format(now % 1000)
+                val dateText = dateFormat.format(date)
+                if (dateText != lastDateText) {
+                    lastDateText = dateText
+                    txtDate.text = dateText
+                }
+                worldClocks.update(now)
 
-                // Format the full string: "12:00:00.123"
-                val fullTimeString = timeFormat.format(Date(currentAtomicTime))
-
-                // SPLIT the string rigidly
-                // "12:00:00.123" -> Indices: 01 2 34 5 67 8...
-                val hours = fullTimeString.substring(0, 2)
-                val minutes = fullTimeString.substring(3, 5)
-                val seconds = fullTimeString.substring(6, 8)
-                val millis = fullTimeString.substring(8) // Includes the dot
-
-                // Update separate boxes
-                txtHours.text = hours
-                txtMinutes.text = minutes
-                txtSeconds.text = seconds
-                txtMillis.text = millis
-                worldClocks.update(currentAtomicTime)
-
-                // Sound Logic
-                val currentSecond = currentAtomicTime / 1000
+                val currentSecond = now / 1000
                 if (isSoundOn && currentSecond > lastPlayedSecond) {
                     if (currentSecond % 60 == 0L) {
                         toneGen.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 200)
@@ -116,52 +106,35 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Connect variables
-        txtHours = findViewById(R.id.txtHours)
-        txtColon1 = findViewById(R.id.txtColon1)
-        txtMinutes = findViewById(R.id.txtMinutes)
-        txtColon2 = findViewById(R.id.txtColon2)
-        txtSeconds = findViewById(R.id.txtSeconds)
+        txtTime = findViewById(R.id.txtTime)
         txtMillis = findViewById(R.id.txtMillis)
-
+        txtDate = findViewById(R.id.txtDate)
+        statusDot = findViewById(R.id.statusDot)
         txtNetworkStats = findViewById(R.id.txtNetworkStats)
         txtOffset = findViewById(R.id.txtOffset)
+        txtOffsetWords = findViewById(R.id.txtOffsetWords)
         btnSync = findViewById(R.id.btnSync)
-        btnFixTime = findViewById(R.id.btnFixTime)
         btnSetClock = findViewById(R.id.btnSetClock)
+        btnSound = findViewById(R.id.btnSound)
         txtUpdate = findViewById(R.id.txtUpdate)
-        worldClocks = WorldClockViews(findViewById<LinearLayout>(R.id.worldAbove), findViewById<LinearLayout>(R.id.worldBelow))
+        worldClocks = WorldClockViews(findViewById<LinearLayout>(R.id.worldAbove), findViewById<LinearLayout>(R.id.worldBelow)) {
+            WorldClockStore.save(this, it)
+        }
+
+        fitMainClock()
+        handler.post(clockRunnable)
+
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-        btnSound = findViewById(R.id.btnSound)
-
-        // Lock text size immediately
-        calculatePerfectTextSize()
-
-        // Start ticker
-        handler.post(clockRunnable)
-
-        // Buttons
         btnSync.setOnClickListener { fetchAtomicTime() }
         btnSetClock.setOnClickListener { setSystemClock() }
-
-        btnFixTime.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_DATE_SETTINGS))
-        }
-
         btnSound.setOnClickListener {
             isSoundOn = !isSoundOn
-            if (isSoundOn) {
-                btnSound.text = "🔊  Audio Tick: ON"
-                btnSound.setTextColor(resources.getColor(android.R.color.white, null))
-                btnSound.background.setTint(0xFF222222.toInt())
-                lastPlayedSecond = (System.currentTimeMillis() + timeOffset) / 1000
-            } else {
-                btnSound.text = "🔇  Audio Tick: OFF"
-                btnSound.setTextColor(resources.getColor(android.R.color.darker_gray, null))
-                btnSound.background.setTint(0xFF1A1A1A.toInt())
-            }
+            btnSound.setImageResource(if (isSoundOn) R.drawable.ic_sound_on else R.drawable.ic_sound_off)
+            btnSound.contentDescription = if (isSoundOn) "Audio tick on" else "Audio tick off"
+            if (isSoundOn) lastPlayedSecond = (System.currentTimeMillis() + timeOffset) / 1000
+            Toast.makeText(this, if (isSoundOn) "Audio tick on" else "Audio tick off", Toast.LENGTH_SHORT).show()
         }
 
         fetchAtomicTime()
@@ -171,15 +144,30 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // Picks up changes made in Settings.
-        worldClocks.show(WorldClockStore.load(this))
+        worldClocks.show(WorldClockStore.load(this), WorldClockStore.loadLayout(this))
         worldClocks.update(if (isSynced) System.currentTimeMillis() + timeOffset else null)
+    }
+
+    /** Sizes the main clock so "00:00:00.000" fills most of the screen width. */
+    private fun fitMainClock() {
+        val available = resources.displayMetrics.widthPixels - 40 * resources.displayMetrics.density
+        val paint = Paint().apply {
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+            fontFeatureSettings = "tnum"
+            textSize = 100f
+        }
+        // Milliseconds are drawn at 40% size beside the main digits.
+        val width = paint.measureText("00:00:00") + 0.4f * paint.measureText(".000")
+        val size = 100f * available * 0.96f / width
+        txtTime.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
+        txtMillis.setTextSize(TypedValue.COMPLEX_UNIT_PX, size * 0.4f)
     }
 
     /** Once per launch: if GitHub has a newer release, offer it as a tappable pill at the top. */
     private fun checkForUpdate() {
         lifecycleScope.launch {
             val release = updater.checkForUpdate() ?: return@launch
-            val offer = "Update available: v${release.versionName}. Tap to install."
+            val offer = "Update available: v${release.versionName} · Tap to install"
             var busy = false
             txtUpdate.text = offer
             txtUpdate.visibility = View.VISIBLE
@@ -201,63 +189,44 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun calculatePerfectTextSize() {
-        val displayMetrics = resources.displayMetrics
-        val screenWidth = displayMetrics.widthPixels.toFloat()
-
-        // We calculate size so it fills the screen width based on our Grid
-        // A "safe" divisor for this 6-element grid layout
-        val mainTextSize = screenWidth / 7.5f
-        val millisTextSize = mainTextSize / 2.0f
-
-        // Apply size to the grid elements
-        txtHours.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainTextSize)
-        txtColon1.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainTextSize)
-        txtMinutes.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainTextSize)
-        txtColon2.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainTextSize)
-        txtSeconds.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainTextSize)
-
-        // Millis is smaller
-        txtMillis.setTextSize(TypedValue.COMPLEX_UNIT_PX, millisTextSize)
+    private fun setStatus(text: String, colorRes: Int = R.color.text_tertiary) {
+        txtNetworkStats.text = text
+        statusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
     }
 
     private fun fetchAtomicTime() {
-        txtNetworkStats.text = "Ping: $currentServer..."
-        txtNetworkStats.alpha = 1.0f
+        setStatus("Checking $currentServer…")
+        btnSync.isEnabled = false
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val client = NTPUDPClient()
                 client.defaultTimeout = 5000
                 client.open()
-
-                val hostAddr = InetAddress.getByName(currentServer)
-                val info = client.getTime(hostAddr)
+                val info = client.getTime(InetAddress.getByName(currentServer))
                 client.close()
-
                 info.computeDetails()
-                val calculatedOffset = info.offset
-                val delay = info.delay
 
                 withContext(Dispatchers.Main) {
-                    timeOffset = calculatedOffset ?: 0
-                    roundTripDelay = delay ?: 0
+                    timeOffset = info.offset ?: 0
+                    roundTripDelay = info.delay ?: 0
                     isSynced = true
+                    btnSync.isEnabled = true
                     updateInfoDisplay()
                 }
-
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    txtNetworkStats.text = "Connection Error"
-                }
                 e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    btnSync.isEnabled = true
+                    setStatus("Couldn't reach $currentServer", R.color.status_bad)
+                }
             }
         }
     }
 
     /**
      * Measures the true time, sets the phone's system clock to it, then
-     * measures again so the offset display shows the result.
+     * measures again so the readout shows the result.
      */
     private fun setSystemClock() {
         if (!SystemClockSetter.isSetUp(this)) {
@@ -278,8 +247,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         btnSetClock.isEnabled = false
-        txtNetworkStats.alpha = 1.0f
-        txtNetworkStats.text = "Measuring true time..."
+        btnSetClock.text = "Setting…"
+        setStatus("Measuring true time…")
 
         CoroutineScope(Dispatchers.IO).launch {
             var needsSetup = false
@@ -298,7 +267,7 @@ class MainActivity : AppCompatActivity() {
                 val trueTime = System.currentTimeMillis() + offset
 
                 SystemClockSetter.setClock(this@MainActivity, elapsed, trueTime, phoneIsFast = offset < 0) { status ->
-                    runOnUiThread { txtNetworkStats.text = status }
+                    runOnUiThread { setStatus(status) }
                 }
                 null
             } catch (e: SystemClockSetter.NotSetUpException) {
@@ -311,13 +280,15 @@ class MainActivity : AppCompatActivity() {
 
             withContext(Dispatchers.Main) {
                 btnSetClock.isEnabled = true
+                btnSetClock.text = "Set phone clock"
                 if (needsSetup) {
-                    txtNetworkStats.text = "One-time setup needed"
+                    setStatus("One-time setup needed")
                     showSetupDialog()
                 } else if (result == null) {
+                    Toast.makeText(this@MainActivity, "Phone clock set", Toast.LENGTH_SHORT).show()
                     fetchAtomicTime()
                 } else {
-                    txtNetworkStats.text = "Clock not set: $result"
+                    setStatus("Clock not set: $result", R.color.status_bad)
                 }
             }
         }
@@ -352,25 +323,37 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    /** Status line and the "Phone clock" card, after each measurement. */
     private fun updateInfoDisplay() {
-        txtNetworkStats.alpha = 0.8f
         val margin = roundTripDelay / 2
+        // How far the phone's clock is from true time: positive = phone is fast.
+        val error = -timeOffset
+        val color = when {
+            abs(error) <= 50 -> R.color.status_good
+            abs(error) <= 500 -> R.color.status_warn
+            else -> R.color.status_bad
+        }
+        setStatus("Synced with $currentServer · ±$margin ms", R.color.status_good)
 
-        txtNetworkStats.text = "Server: $currentServer   |   Margin: ±${margin}ms"
-
-        val formattedSeconds = String.format(Locale.US, "%.3f", abs(timeOffset) / 1000.0)
-        if (timeOffset == 0L) {
-            txtOffset.text = "$formattedSeconds s"
-            txtOffset.setTextColor(0xFF00E676.toInt())
-        } else {
-            val symbol = if (timeOffset > 0) "+" else "-"
-            txtOffset.text = "$symbol$formattedSeconds s"
-
-            if (abs(timeOffset) > 500) {
-                txtOffset.setTextColor(0xFFFF5252.toInt())
-            } else {
-                txtOffset.setTextColor(0xFFFFAB40.toInt())
-            }
+        txtOffset.text = formatError(error)
+        txtOffset.setTextColor(ContextCompat.getColor(this, color))
+        txtOffsetWords.text = when {
+            error == 0L -> "Exactly on time"
+            error > 0 -> "${formatMagnitude(error)} fast"
+            else -> "${formatMagnitude(error)} slow"
         }
     }
+
+    /** "+7 ms", "−1.234 s", "0 ms" */
+    private fun formatError(ms: Long): String {
+        val sign = when {
+            ms > 0 -> "+"
+            ms < 0 -> "−"
+            else -> ""
+        }
+        return sign + formatMagnitude(ms)
+    }
+
+    private fun formatMagnitude(ms: Long): String =
+        if (abs(ms) < 1000) "${abs(ms)} ms" else String.format(Locale.US, "%.3f s", abs(ms) / 1000.0)
 }
