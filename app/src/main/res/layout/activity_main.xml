@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingHorizontal="5dp"
+    android:paddingTop="80dp"
+    android:paddingBottom="30dp"
+    android:keepScreenOn="true"
+    android:background="#050505">
+
+    <!-- HEADER -->
+    <TextView
+        android:text="ATOMIC CLOCK"
+        android:textColor="#555555"
+        android:textSize="14sp"
+        android:letterSpacing="0.2"
+        android:textStyle="bold"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+
+    <!-- Shown only when GitHub has a newer release; tap to install -->
+    <TextView
+        android:id="@+id/txtUpdate"
+        android:visibility="gone"
+        android:text="Update available"
+        android:textColor="#000000"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:background="#00E676"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp"
+        android:layout_marginTop="12dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+
+    <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="0.4"/>
+
+    <!-- LOCKED GRID SYSTEM CLOCK -->
+    <!-- We split the clock into 6 separate locked boxes so nothing can shift -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="bottom"
+        android:weightSum="100"
+        android:baselineAligned="false">
+
+        <!-- HOURS (22% Width) -->
+        <TextView
+            android:id="@+id/txtHours"
+            android:text="--"
+            tools:text="12"
+            android:textColor="#00E676"
+            android:textStyle="bold"
+            android:typeface="monospace"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="22"/>
+
+        <!-- COLON (4% Width) -->
+        <TextView
+            android:id="@+id/txtColon1"
+            android:text=":"
+            android:textColor="#00E676"
+            android:textStyle="bold"
+            android:typeface="monospace"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="4"/>
+
+        <!-- MINUTES (22% Width) -->
+        <TextView
+            android:id="@+id/txtMinutes"
+            android:text="--"
+            tools:text="00"
+            android:textColor="#00E676"
+            android:textStyle="bold"
+            android:typeface="monospace"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="22"/>
+
+        <!-- COLON (4% Width) -->
+        <TextView
+            android:id="@+id/txtColon2"
+            android:text=":"
+            android:textColor="#00E676"
+            android:textStyle="bold"
+            android:typeface="monospace"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="4"/>
+
+        <!-- SECONDS (22% Width) -->
+        <TextView
+            android:id="@+id/txtSeconds"
+            android:text="--"
+            tools:text="05"
+            android:textColor="#00E676"
+            android:textStyle="bold"
+            android:typeface="monospace"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="22"/>
+
+        <!-- MILLISECONDS (26% Width) -->
+        <!-- Aligned to start (left) so it stays attached to the seconds -->
+        <TextView
+            android:id="@+id/txtMillis"
+            android:text=".---"
+            tools:text=".500"
+            android:textColor="#00B359"
+            android:textStyle="bold"
+            android:typeface="monospace"
+            android:gravity="start|bottom"
+            android:includeFontPadding="false"
+            android:paddingBottom="5dp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="26"/>
+
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="0.6"/>
+
+    <!-- INFO STATS -->
+    <TextView
+        android:id="@+id/txtNetworkStats"
+        android:text="Waiting for sync..."
+        android:textColor="#BBBBBB"
+        android:gravity="center"
+        android:textSize="14sp"
+        android:alpha="0.7"
+        android:layout_marginTop="5dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+
+    <View android:layout_width="match_parent" android:layout_height="40dp"/>
+
+    <!-- OFFSET -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="20dp"
+        android:background="#0F0F0F">
+
+        <TextView
+            android:text="DEVICE OFFSET"
+            android:textColor="#666666"
+            android:textSize="11sp"
+            android:letterSpacing="0.1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/txtOffset"
+            android:text="Checking..."
+            android:textColor="#FF5252"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:layout_marginVertical="5dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"/>
+
+    <!-- CONTROLS -->
+    <Button
+        android:id="@+id/btnSound"
+        android:text="🔇  Audio Tick: OFF"
+        android:textColor="#DDDDDD"
+        android:textSize="12sp"
+        android:backgroundTint="#1A1A1A"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"/>
+
+    <View android:layout_width="match_parent" android:layout_height="10dp"/>
+
+    <Button
+        android:id="@+id/btnSync"
+        android:text="REFRESH SIGNAL"
+        android:textSize="12sp"
+        android:textColor="#000000"
+        android:textStyle="bold"
+        android:backgroundTint="#00E676"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"/>
+
+    <View android:layout_width="match_parent" android:layout_height="10dp"/>
+
+    <Button
+        android:id="@+id/btnSetClock"
+        android:text="SET SYSTEM CLOCK"
+        android:textSize="12sp"
+        android:textColor="#00E676"
+        android:textStyle="bold"
+        android:backgroundTint="#1A1A1A"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"/>
+
+    <Button
+        android:id="@+id/btnFixTime"
+        android:text="OPEN SYSTEM SETTINGS"
+        android:textColor="#888888"
+        android:textSize="10sp"
+        android:backgroundTint="#00000000"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"/>
+
+</LinearLayout>
