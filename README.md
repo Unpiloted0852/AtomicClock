@@ -29,13 +29,13 @@ indefinitely.
 
 ## Setting the system clock
 
-A normal app is not allowed to change the clock. The **Set system clock** button gets
+A normal app is not allowed to change the clock. The **Set phone clock** button gets
 round that by connecting to the phone's own debugging service (the one a USB cable uses)
 and running the time commands with its rights. To get past Android's 2-second rule it
 moves the clock 3 seconds away from the true time and then to the true time, so the clock
 is wrong by 3 seconds for a fraction of a second.
 
-The first press of **Set system clock** walks you through a one-time setup on the phone
+The first press of **Set phone clock** walks you through a one-time setup on the phone
 itself. It takes about a minute and needs no computer:
 
 1. Connect to Wi-Fi.
