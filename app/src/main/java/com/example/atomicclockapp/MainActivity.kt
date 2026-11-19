@@ -65,6 +65,9 @@ class MainActivity : AppCompatActivity() {
     private var roundTripDelay: Long = 0
     private var isSynced = false
     private var lastCardSecond = -1L
+    // The figure on the Phone clock card. Reading two clocks in whole milliseconds makes
+    // their difference wobble by 1 ms, so the card only changes for a real change.
+    private var shownError: Long? = null
 
     private fun trueNow() = baseTrue + (SystemClock.elapsedRealtime() - baseElapsed)
 
@@ -96,7 +99,8 @@ class MainActivity : AppCompatActivity() {
                 val currentSecond = now / 1000
                 if (currentSecond != lastCardSecond) {
                     lastCardSecond = currentSecond
-                    showPhoneClock(phoneError)
+                    val shown = shownError
+                    if (shown == null || abs(phoneError - shown) >= 3) showPhoneClock(phoneError)
                 }
                 if (isSoundOn && currentSecond > lastPlayedSecond) {
                     if (currentSecond % 60 == 0L) {
@@ -332,6 +336,7 @@ class MainActivity : AppCompatActivity() {
 
     /** The "Phone clock" card. [error]: positive = the phone's clock is fast. */
     private fun showPhoneClock(error: Long) {
+        shownError = error
         val color = when {
             abs(error) <= 50 -> R.color.status_good
             abs(error) <= 500 -> R.color.status_warn
