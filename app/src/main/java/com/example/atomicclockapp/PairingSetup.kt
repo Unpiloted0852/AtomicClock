@@ -167,6 +167,7 @@ class PairingCodeReceiver : BroadcastReceiver() {
         Thread {
             try {
                 PairingSetup.pairAndGrant(app, code)
+                AutoSync.schedule(app)
                 PairingSetup.notify(app, "Atomic Clock is set up",
                     "Go back to Atomic Clock and press Set system clock. Wireless debugging was " +
                         "switched off again; the app turns it on by itself when needed.", askForCode = false)

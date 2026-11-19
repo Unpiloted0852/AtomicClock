@@ -23,8 +23,8 @@ android {
         applicationId = "com.example.atomicclockapp"
         minSdk = 24
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = 7
+        versionName = "1.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -63,6 +63,8 @@ dependencies {
     implementation("commons-net:commons-net:3.9.0")
     // Self-update from GitHub Releases (AppUpdater)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Background clock check (AutoSync)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     // Used by SystemClockSetter to run time commands with adb rights
     implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
     implementation("com.github.MuntashirAkon:sun-security-android:1.1")

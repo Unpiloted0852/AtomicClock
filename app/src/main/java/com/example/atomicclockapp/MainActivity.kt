@@ -27,8 +27,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.apache.commons.net.ntp.NTPUDPClient
-import java.net.InetAddress
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,12 +56,17 @@ class MainActivity : AppCompatActivity() {
             else Toast.makeText(this, "Setup needs notifications: the pairing code is typed into one.", Toast.LENGTH_LONG).show()
         }
 
-    private val currentServer = "time.google.com"
+    private val currentServer = TrueTime.SERVER
 
-    // True time = phone time + timeOffset
-    private var timeOffset: Long = 0
+    // True time is kept against the phone's uptime counter, which never jumps when the
+    // phone's clock is set, so the display stays right even while the clock is corrected.
+    private var baseElapsed = 0L
+    private var baseTrue = 0L
     private var roundTripDelay: Long = 0
     private var isSynced = false
+    private var lastCardSecond = -1L
+
+    private fun trueNow() = baseTrue + (SystemClock.elapsedRealtime() - baseElapsed)
 
     private var isSoundOn = false
     private var lastPlayedSecond: Long = 0
@@ -77,7 +80,9 @@ class MainActivity : AppCompatActivity() {
     private val clockRunnable = object : Runnable {
         override fun run() {
             if (isSynced) {
-                val now = System.currentTimeMillis() + timeOffset
+                val now = trueNow()
+                // How far the phone's clock is off right now, so a correction shows at once.
+                val phoneError = System.currentTimeMillis() - now
                 val date = Date(now)
                 txtTime.text = timeFormat.format(date)
                 txtMillis.text = ".%03d".format(now % 1000)
@@ -89,6 +94,10 @@ class MainActivity : AppCompatActivity() {
                 worldClocks.update(now)
 
                 val currentSecond = now / 1000
+                if (currentSecond != lastCardSecond) {
+                    lastCardSecond = currentSecond
+                    showPhoneClock(phoneError)
+                }
                 if (isSoundOn && currentSecond > lastPlayedSecond) {
                     if (currentSecond % 60 == 0L) {
                         toneGen.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 200)
@@ -133,19 +142,22 @@ class MainActivity : AppCompatActivity() {
             isSoundOn = !isSoundOn
             btnSound.setImageResource(if (isSoundOn) R.drawable.ic_sound_on else R.drawable.ic_sound_off)
             btnSound.contentDescription = if (isSoundOn) "Audio tick on" else "Audio tick off"
-            if (isSoundOn) lastPlayedSecond = (System.currentTimeMillis() + timeOffset) / 1000
+            if (isSoundOn) lastPlayedSecond = trueNow() / 1000
             Toast.makeText(this, if (isSoundOn) "Audio tick on" else "Audio tick off", Toast.LENGTH_SHORT).show()
         }
 
         fetchAtomicTime()
         checkForUpdate()
+        AutoSync.schedule(this)
     }
 
     override fun onResume() {
         super.onResume()
         // Picks up changes made in Settings.
         worldClocks.show(WorldClockStore.load(this), WorldClockStore.loadLayout(this))
-        worldClocks.update(if (isSynced) System.currentTimeMillis() + timeOffset else null)
+        worldClocks.update(if (isSynced) trueNow() else null)
+        // The uptime counter drifts like the phone's clock, so measure again after a while.
+        if (isSynced && SystemClock.elapsedRealtime() - baseElapsed > 10 * 60_000) fetchAtomicTime()
     }
 
     /** Sizes the main clock so "00:00:00.000" fills most of the screen width. */
@@ -200,16 +212,12 @@ class MainActivity : AppCompatActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val client = NTPUDPClient()
-                client.defaultTimeout = 5000
-                client.open()
-                val info = client.getTime(InetAddress.getByName(currentServer))
-                client.close()
-                info.computeDetails()
+                val reading = TrueTime.measure()
 
                 withContext(Dispatchers.Main) {
-                    timeOffset = info.offset ?: 0
-                    roundTripDelay = info.delay ?: 0
+                    baseElapsed = reading.elapsedRealtime
+                    baseTrue = reading.trueUnixMillis
+                    roundTripDelay = reading.delayMs
                     isSynced = true
                     btnSync.isEnabled = true
                     updateInfoDisplay()
@@ -253,20 +261,11 @@ class MainActivity : AppCompatActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             var needsSetup = false
             val result = try {
-                val client = NTPUDPClient()
-                client.defaultTimeout = 5000
-                client.open()
-                val info = client.getTime(InetAddress.getByName(currentServer))
-                client.close()
-                info.computeDetails()
-                val offset = info.offset ?: throw IllegalStateException("No answer from $currentServer")
-
                 // True time, paired with the phone's uptime clock at the same instant,
                 // so the time it takes to apply it does not matter.
-                val elapsed = SystemClock.elapsedRealtime()
-                val trueTime = System.currentTimeMillis() + offset
-
-                SystemClockSetter.setClock(this@MainActivity, elapsed, trueTime, phoneIsFast = offset < 0) { status ->
+                val reading = TrueTime.measure()
+                SystemClockSetter.setClock(this@MainActivity, reading.elapsedRealtime, reading.trueUnixMillis,
+                    phoneIsFast = reading.offsetMs < 0) { status ->
                     runOnUiThread { setStatus(status) }
                 }
                 null
@@ -286,6 +285,7 @@ class MainActivity : AppCompatActivity() {
                     showSetupDialog()
                 } else if (result == null) {
                     Toast.makeText(this@MainActivity, "Phone clock set", Toast.LENGTH_SHORT).show()
+                    AutoSync.schedule(this@MainActivity)
                     fetchAtomicTime()
                 } else {
                     setStatus("Clock not set: $result", R.color.status_bad)
@@ -326,14 +326,17 @@ class MainActivity : AppCompatActivity() {
     /** Status line and the "Phone clock" card, after each measurement. */
     private fun updateInfoDisplay() {
         val margin = roundTripDelay / 2
-        // How far the phone's clock is from true time: positive = phone is fast.
-        val error = -timeOffset
+        setStatus("Synced with $currentServer · ±$margin ms", R.color.status_good)
+        showPhoneClock(System.currentTimeMillis() - trueNow())
+    }
+
+    /** The "Phone clock" card. [error]: positive = the phone's clock is fast. */
+    private fun showPhoneClock(error: Long) {
         val color = when {
             abs(error) <= 50 -> R.color.status_good
             abs(error) <= 500 -> R.color.status_warn
             else -> R.color.status_bad
         }
-        setStatus("Synced with $currentServer · ±$margin ms", R.color.status_good)
 
         txtOffset.text = formatError(error)
         txtOffset.setTextColor(ContextCompat.getColor(this, color))

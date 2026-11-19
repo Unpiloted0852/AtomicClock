@@ -9,8 +9,11 @@ time server (`time.google.com`), and can set the phone's own clock to match it.
 
 - Shows the true time (hours, minutes, seconds, milliseconds) and how far the phone's
   clock is off, with the measurement margin.
-- **Set system clock** corrects the phone's clock to within a few milliseconds, at the
+- **Set phone clock** corrects the phone's clock to within a few milliseconds, at the
   push of a button. See below for the one-time setup.
+- **Keeps it accurate**: after setup, a background check (every hour by default, on
+  Wi-Fi) corrects the clock whenever it drifts 25 ms or more. Android on its own waits
+  until it is 2 seconds off, and some phones drift over a second a day.
 - Optional audio tick every second, with a longer tone on the minute.
 - Up to six world clocks (any of about 70,000 cities, or UTC), each small, medium or
   large, shown as a list or a grid. Add them from the ⋮ menu; long-press one on the main

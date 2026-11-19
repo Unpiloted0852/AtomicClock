@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.materialswitch.MaterialSwitch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -87,8 +88,21 @@ class SettingsActivity : AppCompatActivity() {
             topMargin = px(12)
         })
 
-        content.addView(sectionTitle("Phone").apply { setPadding(0, px(28), 0, px(10)) })
+        content.addView(sectionTitle("Phone clock").apply { setPadding(0, px(28), 0, px(10)) })
         val phone = card()
+        phone.addView(autoSyncRow())
+        phone.addView(divider())
+        phone.addView(linkRow("Check every ${AutoSync.describe(AutoSync.intervalMinutes(this))}",
+            "How often to check, while on Wi-Fi") { pickInterval() })
+        if (SystemClockSetter.isSetUp(this)) {
+            phone.addView(divider())
+            phone.addView(linkRow("Check now", "Runs the background check once, on Wi-Fi") {
+                AutoSync.runNow(this)
+                android.widget.Toast.makeText(this, "Checking… the result appears here", android.widget.Toast.LENGTH_SHORT).show()
+                list.postDelayed({ if (!isFinishing) recreate() }, 8000)
+            })
+        }
+        phone.addView(divider())
         phone.addView(linkRow("Date & time settings", "Android's own time and time zone settings") {
             startActivity(Intent(Settings.ACTION_DATE_SETTINGS))
         })
@@ -330,6 +344,57 @@ class SettingsActivity : AppCompatActivity() {
             if (isChecked) WorldClockStore.saveLayout(this, g.findViewById<View>(checkedId).tag as ClockLayout)
         }
         return group
+    }
+
+    /** Switch for [AutoSync], with what it does and how the last check went. */
+    private fun autoSyncRow(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(px(20), px(14), px(16), px(14))
+        }
+        val texts = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginEnd = px(12) }
+        }
+        texts.addView(TextView(this).apply {
+            text = "Keep phone clock accurate"
+            setTextColor(getColor(R.color.text_primary))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        })
+        val detail = when {
+            !SystemClockSetter.isSetUp(this) ->
+                "Needs the one-time setup first: press Set phone clock on the main screen."
+            else -> "Android only corrects its clock once it's 2 seconds off. This checks in the " +
+                "background on Wi-Fi and corrects it at ${AutoSync.THRESHOLD_MS} ms." +
+                (AutoSync.lastResult(this)?.let { "\nLast check $it" } ?: "")
+        }
+        texts.addView(TextView(this).apply {
+            text = detail
+            setTextColor(getColor(R.color.text_tertiary))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        })
+        row.addView(texts)
+        row.addView(MaterialSwitch(this).apply {
+            isChecked = AutoSync.isEnabled(this@SettingsActivity)
+            setOnCheckedChangeListener { _, on -> AutoSync.setEnabled(this@SettingsActivity, on) }
+        })
+        return row
+    }
+
+    private fun pickInterval() {
+        val options = AutoSync.INTERVALS_MINUTES
+        val current = options.indexOf(AutoSync.intervalMinutes(this)).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Check every")
+            .setSingleChoiceItems(options.map { AutoSync.describe(it) }.toTypedArray(), current) { d, which ->
+                AutoSync.setInterval(this, options[which])
+                d.dismiss()
+                recreate()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun card() = LinearLayout(this).apply {
